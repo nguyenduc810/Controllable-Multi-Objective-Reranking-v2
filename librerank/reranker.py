@@ -36,18 +36,21 @@ class BaseModel(object):
                  profile_num, max_norm=None, acc_prefer=1.0, is_controllable=False):
         # reset graph
         tf.compat.v1.reset_default_graph()
-        self.prefer_emb_0 = tf.keras.layers.Embedding(2, eb_dim*2)
-        self.lstm_layer_dec = tf.keras.layers.LSTMCell(units= 512)
-        self.lstm_layer_enc1 = tf.keras.layers.LSTMCell(units= 512)
-        self.lstm_layer_enc2 = tf.keras.layers.LSTMCell(units= 512)
+        # self.prefer_emb_0 = tf.keras.layers.Embedding(2, eb_dim*2)
+        # self.lstm_layer_dec = tf.keras.layers.LSTMCell(units= 512)
+        # self.lstm_layer_enc1 = tf.keras.layers.LSTMCell(units= 512)
+        # self.lstm_layer_enc2 = tf.keras.layers.LSTMCell(units= 512)
         # self.prefer_emb_1 = tf.keras.layers.Embedding(2, eb_dim*2)
         # self.prefer_emb_2 = tf.keras.layers.Embedding(2, eb_dim*2)
         # self.prefer_emb_3 = tf.keras.layers.Embedding(2, eb_dim*2)
         # self.prefer_emb_4 = tf.keras.layers.Embedding(2, eb_dim*2)
         self.graph = tf.Graph()
         with self.graph.as_default():
-            with tf.compat.v1.name_scope('testttt'):
-                self.prefer_emb_0 = tf.keras.layers.Embedding(2, eb_dim*2)
+            with tf.compat.v1.name_scope('LSTMcell_hyper'):
+                tf.random.set_seed(1)
+                self.lstm_layer_dec = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units= 512, name='lstm_dec_hyper')
+                self.lstm_layer_enc1 = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units= 512, name='lstm_enc1_hyper')
+                self.lstm_layer_enc2 = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units= 512, name= 'lstm_enc2_hyper')
             # input placeholders
             with tf.compat.v1.name_scope('inputs'):
                 self.acc_prefer = acc_prefer
@@ -92,6 +95,16 @@ class BaseModel(object):
             # embedding
             with tf.compat.v1.name_scope('embedding'):
                 tf.random.set_seed(1)
+
+                # self.prefer_emb_0 = tf.keras.layers.Embedding(2, eb_dim*2)
+                self.prefer_emb_0 = tf.compat.v1.get_variable(
+                                                                name="embedding_pref_hyper",
+                                                                trainable = True,
+                                                                shape=[2, eb_dim*2],
+                                                                dtype=tf.float32,
+                                                                initializer=tf.random_normal_initializer()
+                                                            )
+
                 self.emb_mtx = tf.compat.v1.get_variable('emb_mtx', [feature_size + 1, eb_dim],
                                                initializer=tf.compat.v1.truncated_normal_initializer)
                 self.itm_spar_emb = tf.gather(self.emb_mtx,
@@ -511,19 +524,28 @@ class BaseModel(object):
         # vars_to_restore = [tf.compat.v1.get_variable(name) for name in vars_to_restore_name]
         # saver = tf.compat.v1.train.Saver(var_list={name: tf.compat.v1.get_variable(name) for name in vars_to_restore_name})
         # saver = tf.compat.v1.train.Saver(var_list={name: tf.Variable(initial_value=0.0, name=name) for name in vars_to_restore_name})
-        
-        
+        # print({var for var in tf.compat.v1.global_variables() if 'hyper' not in var.name or 'LSTMcell' not in var.name  })
+
+        # for  var in tf.compat.v1.global_variables():
+        #     if 'hyper' not in var.name:
+        #         print(var.name)
+        saver = tf.compat.v1.train.Saver(var_list=  {var for var in tf.compat.v1.global_variables() if 'hyper' not in var.name})
+        # for var in tf.compat.v1.global_variables():
+            # var.trainable = False
+            # if 'hyper' not in var.name:
+                # tf.compat.v1.keras.backend.set_value(var.trainable, False)
+                # print(var.trainable)
         # vars_to_restore = [var for var in tf.compat.v1.global_variables() if any(layer in var.name for layer in vars_to_restore_name)]
         
         with self.graph.as_default():
             ckpt = tf.train.get_checkpoint_state(path)
             if ckpt and ckpt.model_checkpoint_path:
-                saver = tf.compat.v1.train.Saver()
+                # saver = tf.compat.v1.train.Saver()
                 saver.restore(sess=self.sess, save_path=ckpt.model_checkpoint_path)
                 print('Restore model:', ckpt.model_checkpoint_path)
             else:
                 print('Not restore model!')
-            # for var in tf.compat.v1.model_variables():
+            # for var in tf.compat.v1.global_variables():
             #     print(f"Saving variable: {var.name}")
 
     def set_sess(self, sess):

@@ -73,11 +73,11 @@ class RLModel(BaseModel):
                 self.enc_outputs = self.get_dnn(enc_input, [200, 80], [tf.nn.relu, tf.nn.relu], "enc_dnn")  # [B*N or B,
             # N, 80]
             else:
-                self.enc_outputs = self.get_hyper_dnn(enc_input, [enc_input.get_shape()[-1].value,
-                                                            200, 80], [tf.nn.relu, tf.nn.relu], "hyper_enc_dnn")
+                # self.enc_outputs = self.get_hyper_dnn(enc_input, [enc_input.get_shape()[-1].value,
+                #                                             200, 80], [tf.nn.relu, tf.nn.relu], "hyper_enc_dnn")
                 
-                # self.enc_outputs = self.get_dnn_adaptation(enc_input, [enc_input.get_shape()[-1].value,
-                #                                             200, 80], [tf.nn.relu, tf.nn.relu], "enc_dnn")
+                self.enc_outputs = self.get_dnn_adaptation(enc_input, [enc_input.get_shape()[-1].value,
+                                                            200, 80], [tf.nn.relu, tf.nn.relu], "enc_dnn")
 
         with tf.compat.v1.variable_scope("encoder_state"):
             cell_dec = tf.compat.v1.nn.rnn_cell.BasicLSTMCell(self.lstm_hidden_units)
@@ -102,13 +102,13 @@ class RLModel(BaseModel):
                     self.get_dnn(x, [200, 80, 1], [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
                     [-1, self.item_size])  # [B*N or B, N]
             else:
-                self.act_logits_train = tf.reshape(self.get_hyper_dnn(x, [self.lstm_hidden_units + 80, 200, 80, 1],
-                                                                      [tf.nn.relu, tf.nn.relu, None], "hyper_dec_dnn"),
-                                                   [-1, self.item_size])  # [B*N or B, N]
-
-                # self.act_logits_train = tf.reshape(self.get_dnn_adaptation(x, [self.lstm_hidden_units + 80, 200, 80, 1],
-                #                                                       [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
+                # self.act_logits_train = tf.reshape(self.get_hyper_dnn(x, [self.lstm_hidden_units + 80, 200, 80, 1],
+                #                                                       [tf.nn.relu, tf.nn.relu, None], "hyper_dec_dnn"),
                 #                                    [-1, self.item_size])  # [B*N or B, N]
+
+                self.act_logits_train = tf.reshape(self.get_dnn_adaptation(x, [self.lstm_hidden_units + 80, 200, 80, 1],
+                                                                      [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
+                                                   [-1, self.item_size])  # [B*N or B, N]
             
             
             self.act_probs_train = tf.nn.softmax(self.act_logits_train)  # [B*N or N, N]
@@ -157,12 +157,12 @@ class RLModel(BaseModel):
                         self.get_dnn(x, [200, 80, 1], [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
                         [-1, self.item_size])
                 else:
-                    act_logits_pred = tf.reshape(self.get_hyper_dnn(x, [self.lstm_hidden_units + 80, 200, 80, 1],
-                                                                    [tf.nn.relu, tf.nn.relu, None], "hyper_dec_dnn"),
-                                                 [-1, self.item_size])
-                    # act_logits_pred = tf.reshape(self.get_dnn_adaptation(x, [self.lstm_hidden_units + 80, 200, 80, 1],
-                    #                                                 [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
+                    # act_logits_pred = tf.reshape(self.get_hyper_dnn(x, [self.lstm_hidden_units + 80, 200, 80, 1],
+                    #                                                 [tf.nn.relu, tf.nn.relu, None], "hyper_dec_dnn"),
                     #                              [-1, self.item_size])
+                    act_logits_pred = tf.reshape(self.get_dnn_adaptation(x, [self.lstm_hidden_units + 80, 200, 80, 1],
+                                                                    [tf.nn.relu, tf.nn.relu, None], "dec_dnn"),
+                                                 [-1, self.item_size])
                 act_probs_mask = tf.nn.softmax(tf.add(tf.multiply(1. - mask_tmp, -1.0e9), act_logits_pred))  # [B, N]
                 act_probs_mask_random = tf.nn.softmax(tf.add(tf.multiply(1. - mask_tmp, -1.0e9), mask_tmp))
 
@@ -342,62 +342,11 @@ class RLModel(BaseModel):
         with tf.compat.v1.variable_scope(name):
             for i, layer_act in enumerate(layer_acts):
                 if i ==0:
-                    ret, hyper_w, hyper_b, state_h_c = self.build_hyper_LSTM_net_adaptaion(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
+                    ret, state_h_c = self.build_hyper_LSTM_net_adaptaion(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
                                                           None, name_ = name)
                 else:
-                    ret, hyper_w, hyper_b, state_h_c = self.build_hyper_LSTM_net_adaptaion(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
+                    ret, state_h_c = self.build_hyper_LSTM_net_adaptaion(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
                                                           None, state_init = state_h_c, name_ =name)
-
-                # ### adaptation weights and biases
-                # all_variables = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES)
-                # # print(all_variables)
-                # if name == 'enc_dnn_1' and 'encoder/enc_dnn_1/layer_%d/weights:0'%i not in all_variables:
-                #     _ = _layers.fully_connected(
-                #     inputs=input_ft,
-                #     num_outputs=layer_nums[i+1],
-                #     scope='layer_%d' % i,
-                #     activation_fn=layer_act,
-                #     reuse=tf.compat.v1.AUTO_REUSE
-                #     ) # create layer 
-                # if name == 'enc_dnn_2' and 'encoder/enc_dnn_2/layer_%d/weights:0'%i not in all_variables:
-                #     _ = _layers.fully_connected(
-                #     inputs=input_ft,
-                #     num_outputs=layer_nums[i+1],
-                #     scope='layer_%d' % i,
-                #     activation_fn=layer_act,
-                #     reuse=tf.compat.v1.AUTO_REUSE
-                #     ) # create layer
-                # if name == 'dec_dnn' and 'decoder/decoder/point_decoder/Attention_0/dec_dnn/layer_%d/weights:0'%i not in all_variables:
-                #     _ = _layers.fully_connected(
-                #     inputs=input_ft,
-                #     num_outputs=layer_nums[i+1],
-                #     scope='layer_%d' % i,
-                #     activation_fn=layer_act,
-                #     reuse=tf.compat.v1.AUTO_REUSE
-                #     ) 
-                # # print(tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES))
-                # # print(name_father)
-                # if name == 'enc_dnn_1':
-                #     # print('alo 1')
-                #     layer_weight = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,'encoder/enc_dnn_1/layer_%d/weights:0'%i)
-                #     layer_biases = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,"encoder/enc_dnn_1/layer_%d/biases:0" % i)
-                # elif name == 'enc_dnn_2':
-                #     # print('alo2')
-                #     layer_weight = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,'encoder/enc_dnn_2/layer_%d/weights:0'%i)
-                #     layer_biases = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,"encoder/enc_dnn_2/layer_%d/biases:0" % i)
-                # elif  name == 'dec_dnn' and name_father == 'Attention_0':
-                #     # print('alo3')
-                #     layer_weight = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,'decoder/decoder/point_decoder/Attention_0/dec_dnn/layer_%d/weights:0'%i)
-                #     layer_biases = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,"decoder/decoder/point_decoder/Attention_0/dec_dnn/layer_%d/biases:0" % i)
-                # elif  name == 'dec_dnn' and name_father == 'Attention_1':
-                #     # print('alo4')
-                #     layer_weight = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,'decoder/decoder/point_decoder/Attention_1/dec_dnn/layer_%d/weights:0'%i)
-                #     layer_biases = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,"decoder/decoder/point_decoder/Attention_1/dec_dnn/layer_%d/biases:0" % i)
-                # print(layer_weight)
-                # print(hyper_w)
-                # combined_weight = layer_weight+ hyper_w
-                # combined_biases  = layer_biases+ hyper_b
-                
 
                 output_ft = _layers.fully_connected(
                     inputs=input_ft,
@@ -407,9 +356,9 @@ class RLModel(BaseModel):
                     reuse=tf.compat.v1.AUTO_REUSE
                     )
                 if layer_act:
-                    input_ft = layer_act(tf.add(output_ft, 0.5*ret))
+                    input_ft = layer_act(tf.add(output_ft, ret))
                 else:
-                    input_ft = tf.add(output_ft, 0.5*ret)
+                    input_ft = tf.add(output_ft, ret)
 
 
         return input_ft
@@ -419,17 +368,54 @@ class RLModel(BaseModel):
         state_h_c = None
         assert len(layer_nums) == len(layer_acts) + 1
         with tf.compat.v1.variable_scope(name):
-            # for i, layer_act in enumerate(layer_acts):
-            #     if i ==0:
-            #         input_ft, state_h_c = self.build_hyper_LSTM_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
-            #                                               layer_act, name_ = name)
-            #     else:
-            #         input_ft, state_h_c = self.build_hyper_LSTM_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
-                                                        #   layer_act, state_init = state_h_c, name_ =name)
             for i, layer_act in enumerate(layer_acts):
-                input_ft = self.build_hyper_mlp_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i, layer_act)
+                if i ==0:
+                    input_ft, state_h_c = self.build_hyper_LSTM_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
+                                                          layer_act, name_ = name)
+                else:
+                    input_ft, state_h_c = self.build_hyper_LSTM_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i,
+                                                          layer_act, state_init = state_h_c, name_ =name)
+
+            # #MLP
+            # for i, layer_act in enumerate(layer_acts):
+            #     input_ft = self.build_hyper_mlp_net_scope(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i, layer_act)
+            
+            # LSTM cell
+            # for i, layer_act in enumerate(layer_acts):
+            #     input_ft = self.build_hyper_LSTMcell(input_ft, layer_nums[i], layer_nums[i + 1], 'layer_%d' % i, layer_act)
+
 
         return input_ft
+    
+    def build_hyper_LSTMcell(self, inp, inp_last_dim, units, scope_name, activation=tf.nn.relu):
+        w_output_dim = inp_last_dim * units
+
+        lstm_layer = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units = 512, activation ='tanh', reuse = tf.compat.v1.AUTO_REUSE, name= scope_name)
+        # lstm_layer_b = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units = 512, activation ='tanh', reuse = tf.compat.v1.AUTO_REUSE, name= scope_name + '_b' )
+        initial_state_w = [tf.zeros((1, 512)), tf.zeros((1, 512))]
+        # initial_state_b = [tf.zeros((1, units)), tf.zeros((1, units))]
+        input_MLP, _ = lstm_layer(self.controllable_prefer_vector, initial_state_w)
+        # input_MLP = tf.reduce_sum(output, axis = 0)
+        
+        hyper_w = tf.reshape(_layers.fully_connected(
+            inputs= input_MLP,
+            num_outputs	=w_output_dim,
+            scope=scope_name + '_w',
+            activation_fn=None,
+            reuse=tf.compat.v1.AUTO_REUSE), [-1, units])
+        hyper_b = _layers.fully_connected( # sửa ở đây
+            inputs= input_MLP,
+            num_outputs	=units,
+            scope=scope_name + '_b',
+            activation_fn=None,
+            reuse=tf.compat.v1.AUTO_REUSE)
+        # self.print_loss = tf.print("prefer_vector:", self.controllable_prefer_vector, output_stream=sys.stderr)
+        ret = tf.add(tf.matmul(inp, hyper_w), hyper_b)
+        if activation:
+            ret = activation(ret)
+        return ret
+    
+
 
     def build_hyper_mlp_net_scope(self, inp, inp_last_dim, units, scope_name, activation=tf.nn.relu):  # [B, N, ft_num]
         # prefer_vector = tf.constant([self.controllable_auc_prefer, 1 - self.controllable_auc_prefer], dtype=tf.float32)
@@ -454,30 +440,33 @@ class RLModel(BaseModel):
     
     def build_hyper_LSTM_net_adaptaion(self, inp, inp_last_dim, units, scope_name, activation=tf.nn.relu, state_init = None, name_ = 'hyper_dnn' ): 
         w_output_dim = inp_last_dim * units
+        
+        # prefer_vector_emb = self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector))
+        # prefer_vector_emb = tf.gather(self.prefer_emb_0, tf.transpose(self.controllable_prefer_vector))
 
-        prefer_vector_emb = self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector))
-        prefer_vector_emb = tf.squeeze(prefer_vector_emb, axis=1)
+        prefer_vector_emb = tf.transpose(self.controllable_prefer_vector)* self.prefer_emb_0 
+        # prefer_vector_emb = tf.squeeze(prefer_vector_emb, axis=1)
         # input_lstm = tf.reduce_sum(prefer_vector_emb * tf.transpose(self.controllable_prefer_vector), axis=0)
         input_lstm = tf.reshape(prefer_vector_emb * tf.transpose(self.controllable_prefer_vector), shape=(1, -1))
 
         if state_init is None: 
             initial_state = [tf.zeros((1, 512)), tf.zeros((1, 512))]
             if name_ == 'enc_dnn_1':
-                output, state_h_c = self.lstm_layer_enc1(input_lstm, initial_state)
+                output_, state_h_c = self.lstm_layer_enc1(input_lstm, initial_state)
             elif name_ == 'enc_dnn_2':
-                output, state_h_c = self.lstm_layer_enc2(input_lstm, initial_state)
+                output_, state_h_c = self.lstm_layer_enc2(input_lstm, initial_state)
             elif name_ =='dec_dnn':
-                output, state_h_c = self.lstm_layer_dec(input_lstm, initial_state)
+                output_, state_h_c = self.lstm_layer_dec(input_lstm, initial_state)
         else: 
             # output, state_h_c = self.lstm_layer(input_lstm,state_init)
             if name_ == 'enc_dnn_1':
-                output, state_h_c = self.lstm_layer_enc1(input_lstm, state_init)
+                output_, state_h_c = self.lstm_layer_enc1(input_lstm, state_init)
             elif name_ == 'enc_dnn_2':
-                output, state_h_c = self.lstm_layer_enc2(input_lstm, state_init)
+                output_, state_h_c = self.lstm_layer_enc2(input_lstm, state_init)
             elif name_ =='dec_dnn':
-                output, state_h_c = self.lstm_layer_dec(input_lstm, state_init)
+                output_, state_h_c = self.lstm_layer_dec(input_lstm, state_init)
 
-        input_MLP = output
+        input_MLP = output_
 
         hyper_w = tf.reshape(_layers.fully_connected(
             inputs=input_MLP,
@@ -494,41 +483,18 @@ class RLModel(BaseModel):
         # self.print_loss = tf.print("prefer_vector:", self.controllable_prefer_vector, output_stream=sys.stderr)
 
         ret = tf.add(tf.matmul(inp, hyper_w), hyper_b)
-        return ret, hyper_w, hyper_b, state_h_c
+        return ret, state_h_c
 
 
     def build_hyper_LSTM_net_scope(self, inp, inp_last_dim, units, scope_name, activation=tf.nn.relu, state_init = None, name_ = 'hyper_dnn' ):  # [B, N, ft_num]
         # prefer_vector = tf.constant([self.controllable_auc_prefer, 1 - self.controllable_auc_prefer], dtype=tf.float32)
         w_output_dim = inp_last_dim * units
-
-        #lstm
-        # if tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0), tf.math.less(self.controllable_prefer_vector[0], 0.2))):
-        #     prefer_vector_emb = self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector))
-        # elif tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.2), tf.math.less(self.controllable_prefer_vector[0], 0.4))):
-        #     prefer_vector_emb = self.prefer_emb_1(tf.transpose(self.controllable_prefer_vector))
-        # elif tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.4), tf.math.less(self.controllable_prefer_vector[0], 0.6))):
-        #     prefer_vector_emb = self.prefer_emb_2(tf.transpose(self.controllable_prefer_vector))
-        # elif tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.6), tf.math.less(self.controllable_prefer_vector[0], 0.8))):
-        #     prefer_vector_emb = self.prefer_emb_3(tf.transpose(self.controllable_prefer_vector))
-        # elif tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.8), tf.math.less_equal(self.controllable_prefer_vector[0], 1))):
-        #     prefer_vector_emb = self.prefer_emb_4(tf.transpose(self.controllable_prefer_vector))
-
-
-        # condition_0 = tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0), tf.math.less(self.controllable_prefer_vector[0], 0.2)))
-        # condition_1 = tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.2), tf.math.less(self.controllable_prefer_vector[0], 0.4)))
-        # condition_2 = tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.4), tf.math.less(self.controllable_prefer_vector[0], 0.6)))
-        # condition_3 = tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.6), tf.math.less(self.controllable_prefer_vector[0], 0.8)))
-        # condition_4 = tf.reduce_all(tf.math.logical_and(tf.math.greater_equal(self.controllable_prefer_vector[0], 0.8), tf.math.less_equal(self.controllable_prefer_vector[0], 1)))
-
-        # prefer_vector_emb = tf.cond(condition_0, lambda: self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector)),
-        #                             lambda: tf.cond(condition_1, lambda: self.prefer_emb_1(tf.transpose(self.controllable_prefer_vector)),
-        #                                    lambda: tf.cond(condition_2, lambda: self.prefer_emb_2(tf.transpose(self.controllable_prefer_vector)),
-        #                                                   lambda: tf.cond(condition_3, lambda: self.prefer_emb_3(tf.transpose(self.controllable_prefer_vector)),
-        #                                                                  lambda: tf.cond(condition_4, lambda: self.prefer_emb_4(tf.transpose(self.controllable_prefer_vector)),
-        #                                                                                 lambda:self.prefer_emb_4(tf.transpose(self.controllable_prefer_vector)) )))))
         
-        prefer_vector_emb = self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector))
-        prefer_vector_emb = tf.squeeze(prefer_vector_emb, axis=1)
+        # prefer_vector_emb = self.prefer_emb_0(tf.transpose(self.controllable_prefer_vector))
+        # prefer_vector_emb = tf.gather(self.prefer_emb_0, tf.transpose(self.controllable_prefer_vector))
+
+        prefer_vector_emb = tf.transpose(self.controllable_prefer_vector)* self.prefer_emb_0 
+        # prefer_vector_emb = tf.squeeze(prefer_vector_emb, axis=1)
         # input_lstm = tf.reduce_sum(prefer_vector_emb * tf.transpose(self.controllable_prefer_vector), axis=0)
         input_lstm = tf.reshape(prefer_vector_emb * tf.transpose(self.controllable_prefer_vector), shape=(1, -1))
         
@@ -553,6 +519,7 @@ class RLModel(BaseModel):
                 output, state_h_c = self.lstm_layer_enc2(input_lstm, initial_state)
             elif name_ =='hyper_dec_dnn':
                 output, state_h_c = self.lstm_layer_dec(input_lstm, initial_state)
+            # print(output)
         else: 
             # output, state_h_c = self.lstm_layer(input_lstm,state_init)
             if name_ == 'hyper_enc_dnn_1':
@@ -561,7 +528,8 @@ class RLModel(BaseModel):
                 output, state_h_c = self.lstm_layer_enc2(input_lstm, state_init)
             elif name_ =='hyper_dec_dnn':
                 output, state_h_c = self.lstm_layer_dec(input_lstm, state_init)
-
+            
+            # print(output)
         input_MLP = output
 
         hyper_w = tf.reshape(_layers.fully_connected(

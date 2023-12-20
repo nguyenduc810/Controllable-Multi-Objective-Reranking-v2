@@ -1,6 +1,7 @@
 from librerank.rl_reranker import *
 import numpy as np
 from modules import functions_hv_grad_3d
+import tensorflow as tf
 
 from modules.functions_evaluation import compute_hv_in_higher_dimensions as compute_hv
 
@@ -40,7 +41,7 @@ class CMR_generator(RLModel):
         #     raise ValueError("Shape[1] and [2] of attention_states must be known: %s"
         #                      % attention_states.get_shape())
 
-        with vs.variable_scope(scope or "point_decoder"):
+        with tf.compat.v1.variable_scope(scope or "point_decoder"):
             batch_size = tf.shape(decoder_inputs[0])[0]  # Needed for reshaping.
             input_size = decoder_inputs[0].get_shape()[1]  # input_size or state_size # sử ở đây nha
             # TODO: recover
@@ -72,7 +73,7 @@ class CMR_generator(RLModel):
                 attention_weights = []  # Results of attention reads will be stored here.
                 context_vector_list = []
                 for a in range(attention_head_nums):
-                    with vs.variable_scope("Attention_%d" % a):
+                    with tf.compat.v1.variable_scope("Attention_%d" % a):
                         if not self.is_controllable:
                             # y = core_rnn_cell._linear(query, attention_vec_size,
                             #                           True)  # [B,state_size], W2di in paper, linear transform, same shape as decoder state and encoder states
@@ -81,10 +82,10 @@ class CMR_generator(RLModel):
                             y = self.get_dnn(query,[200, attention_vec_size], # sửa ở đây
                                                [tf.nn.relu, None], "dec_dnn")
                         else:
-                            y = self.get_hyper_dnn(query, [query.get_shape()[-1], 200, attention_vec_size], # sửa ở đây
-                                               [tf.nn.relu, None], "hyper_dec_dnn")
-                            # y = self.get_dnn_adaptation(query, [query.get_shape()[-1], 200, attention_vec_size], # sửa ở đây
-                            #                    [tf.nn.relu, None], "dec_dnn", "Attention_%d"%a)
+                            # y = self.get_hyper_dnn(query, [query.get_shape()[-1], 200, attention_vec_size], # sửa ở đây
+                            #                    [tf.nn.relu, None], "hyper_dec_dnn")
+                            y = self.get_dnn_adaptation(query, [query.get_shape()[-1], 200, attention_vec_size], # sửa ở đây
+                                               [tf.nn.relu, None], "dec_dnn", "Attention_%d"%a)
                         y = tf.reshape(y, [-1, 1, 1, attention_vec_size])  # [B,1,1,state_size]
                         # Attention mask is a softmax of v^T * tanh(...).
                         s = tf.reduce_sum(
@@ -118,7 +119,7 @@ class CMR_generator(RLModel):
                 # If sampling_function is set, we use it instead of decoder_inputs.
                 if sampling_function is not None and prev is not None:
                     # TODO:reuse=True
-                    with vs.variable_scope("sampling_function", reuse=tf.compat.v1.AUTO_REUSE):
+                    with tf.compat.v1.variable_scope("sampling_function", reuse=tf.compat.v1.AUTO_REUSE):
                         inp, sampling_symbol_score = sampling_function(prev, i)
                         inps.append(inp)
                         prediction_score += sampling_symbol_score  # [B,N]
@@ -165,10 +166,10 @@ class CMR_generator(RLModel):
         # if True:
             self.encoder_states = self.get_dnn(self.enc_input, [200], [tf.nn.relu], "enc_dnn_1")  # [B*N or B, N, 200]
         else:
-            self.encoder_states = self.get_hyper_dnn(self.enc_input, [self.enc_input.get_shape()[-1], 200] #sửa .value ở đây
-                                                     , [tf.nn.relu], "hyper_enc_dnn_1")  # [B*N or B, N, 200]
-            # self.encoder_states = self.get_dnn_adaptation(self.enc_input, [self.enc_input.get_shape()[-1], 200] #sửa .value ở đây
-            #                                          , [tf.nn.relu], "enc_dnn_1")
+            # self.encoder_states = self.get_hyper_dnn(self.enc_input, [self.enc_input.get_shape()[-1], 200] #sửa .value ở đây
+            #                                          , [tf.nn.relu], "hyper_enc_dnn_1")  # [B*N or B, N, 200]
+            self.encoder_states = self.get_dnn_adaptation(self.enc_input, [self.enc_input.get_shape()[-1], 200] #sửa .value ở đây
+                                                     , [tf.nn.relu], "enc_dnn_1")
             
         self.final_state = tf.reduce_sum(self.encoder_states, axis=1)  # [B*N or B, 1, 200]
         if not self.is_controllable:
@@ -176,12 +177,12 @@ class CMR_generator(RLModel):
             self.final_state = self.get_dnn(self.final_state, [self.lstm_hidden_units], [tf.nn.relu],
                                             "enc_dnn_2")  # [B*N or B, 1, 200]
         else:
-            self.final_state = self.get_hyper_dnn(self.final_state, [self.final_state.get_shape()[-1], # sửa ở đây
+        #     self.final_state = self.get_hyper_dnn(self.final_state, [self.final_state.get_shape()[-1], # sửa ở đây
+        #                                                        self.lstm_hidden_units], [tf.nn.relu],
+        #                                     "hyper_enc_dnn_2")  # [B*N or B, 1, 200]
+            self.final_state = self.get_dnn_adaptation(self.final_state, [self.final_state.get_shape()[-1], # sửa ở đây
                                                                self.lstm_hidden_units], [tf.nn.relu],
-                                            "hyper_enc_dnn_2")  # [B*N or B, 1, 200]
-            # self.final_state = self.get_dnn_adaptation(self.final_state, [self.final_state.get_shape()[-1], # sửa ở đây
-            #                                                    self.lstm_hidden_units], [tf.nn.relu],
-            #                                 "enc_dnn_2")  # [B*N or B, 1, 200]
+                                            "enc_dnn_2")  # [B*N or B, 1, 200]
             
 
 
@@ -415,6 +416,22 @@ class CMR_generator(RLModel):
             self._build_loss()
             # self._build_loss_multisample()
 
+        # all_variables = tf.compat.v1.global_variables()
+
+        # # In thông tin về các biến
+        # for var in all_variables:
+        #     print(var.name, var.trainable)
+
+        # # Đặt trainable=False cho tất cả các biến
+        # for var in all_variables:
+        #     tf.compat.v1.keras.backend.set_value(var.trainable, False)
+
+        # # In thông tin sau khi đặt trainable=False
+        # for var in all_variables:
+        #     print(var.name, var.trainable)
+
+
+
     def _build_loss(self):
         self.gamma = 1
         if self.loss_type == 'ce':
@@ -448,6 +465,7 @@ class CMR_generator(RLModel):
             #                            "\naction", act_idx_one_hot, tf.shape(act_idx_one_hot),
             #                            output_stream=sys.stderr)
             # # self.aa, self.bb, self.cc = auc_label, prob_mask, act_idx_one_hot
+
             if self.is_controllable:
                 ce = tf.add(tf.multiply(div_ce, 1 - self.controllable_auc_prefer),
                             tf.multiply(tf.math.divide(auc_ce, tf.constant(10, dtype=tf.float32)), self.controllable_auc_prefer))
@@ -459,8 +477,14 @@ class CMR_generator(RLModel):
 
              # chebyshev loss function
             # ce = tf.reduce_max(tf.stack([tf.reduce_sum(tf.multiply(div_ce, 1 - self.controllable_auc_prefer), axis=1),
-            #                 tf.math.divide(tf.reduce_sum(tf.multiply(auc_ce, self.controllable_auc_prefer), axis=1), tf.constant(10, dtype=tf.float32))], axis=1), axis= -1)
+            #                 tf.math.divide(tf.reduce_sum(tf.multiply(auc_ce, self.controllable_auc_prefer), axis=1), 1)], axis=1), axis= -1)
             
+            # chebyshev loss function (normalized, abs)
+            # auc_max = tf.reduce_max(tf.reduce_sum(div_ce, axis=1))
+            # div_max = tf.reduce_max(tf.reduce_sum(div_ce, axis=1))
+            # ce = tf.reduce_max(tf.stack([tf.abs(tf.reduce_sum(tf.multiply(div_ce, 1 - self.controllable_auc_prefer), axis=1)),
+            #                 tf.abs(tf.reduce_sum(tf.multiply(auc_ce, self.controllable_auc_prefer), axis=1))], axis=1), axis= -1)
+
 
             # ce = tf.reduce_max(tf.stack([tf.abs(tf.reduce_sum(tf.multiply(div_ce, 1 - self.controllable_auc_prefer), axis=1)),
             #                 tf.abs(tf.math.divide(tf.reduce_sum(tf.multiply(auc_ce, self.controllable_auc_prefer), axis=1), tf.constant(10, dtype=tf.float32)))], axis=1), axis= -1)
@@ -481,6 +505,7 @@ class CMR_generator(RLModel):
             self.loss = tf.reduce_mean(tf.reduce_sum(ce, axis=1))
 
             # self.loss = tf.reduce_mean(tf.reduce_sum(auc_ce, axis=1))
+
             #chebyshev loss function
             # self.loss = tf.reduce_mean(ce)
         else:
