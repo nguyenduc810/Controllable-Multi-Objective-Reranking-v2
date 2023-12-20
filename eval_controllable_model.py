@@ -4,6 +4,7 @@ import random
 import time
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 from librerank.utils import *
 from librerank.reranker import *
 from librerank.CMR_generator import *
@@ -53,6 +54,38 @@ def eval_controllable_10(model, data, l2_reg, batch_size, isrank, metric_scope, 
     return loss, res
 
 
+def eval_controllable(model, data, l2_reg, batch_size, isrank, metric_scope, _print=False, num_points = 30):
+    preds = [[] for i in range(num_points)]
+    losses = [[] for i in range(num_points)]
+
+    data_size = len(data[0])
+    batch_num = data_size // batch_size
+    print('eval', batch_size, batch_num)
+
+    t = time.time()
+    labels = data[4]
+    cate_ids = list(map(lambda a: [i[1] for i in a], data[2]))
+    # prefs= np.linspace(2/3, 1.0, 20)
+    prefs= np.linspace(0.0, 1.0, num_points)
+    for i, pref in enumerate(prefs):
+        for batch_no in range(batch_num):
+            data_batch = get_aggregated_batch(data, batch_size=batch_size, batch_no=batch_no)
+            pred, loss = model.eval(data_batch, l2_reg, pref)
+            preds[i].extend(pred)
+            losses[i].append(loss)
+
+    loss = [sum(loss) / len(loss) for loss in losses]  # [11]
+
+    res = [[] for i in range(5)]  # [5, 11, 4]
+    for pred in preds:
+        r = evaluate_multi(labels, pred, cate_ids, metric_scope, isrank, _print)
+        for j in range(5):
+            res[j].append(r[j])
+
+    print("EVAL TIME: %.4fs" % (time.time() - t))
+    return loss, res, prefs
+
+
 def reranker_parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--max_time_len', default=10, type=int, help='max time length')
@@ -82,7 +115,7 @@ def reranker_parse_args():
     # parser.add_argument('--decay_rate', default=1.0, type=float, help='learning rate decay rate')
     parser.add_argument('--timestamp', type=str, default=datetime.datetime.now().strftime("%Y%m%d%H%M"))
     parser.add_argument('--evaluator_path', type=str, default='', help='evaluator ckpt dir')
-    parser.add_argument('--reload_path', type=str, default='./model/save_model_ad/10/202301122214_lambdaMART_Seq2Slate_16_0.0001_0.0001_64_16_0.8_controllable/', help='model ckpt dir')
+    parser.add_argument('--reload_path', type=str, default='./home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/model/single_obj/10/202312181429_lambdaMART_CMR_generator_64_0.001_1e-05_64_16_0.8_single_model/', help='model ckpt dir')
 
     parser.add_argument('--setting_path', type=str, default='./example/config/ad/cmr_generator_setting.json',
                 help='setting dir')
@@ -134,39 +167,49 @@ if __name__ == '__main__':
         sess.run(tf.compat.v1.global_variables_initializer())
         model.load(params.reload_path)
 
-    loss, res = eval_controllable_10(model, test_lists, params.l2_reg, params.batch_size, True,
-                                     params.metric_scope, False)
-    map_5_l = list(map(lambda a: a[2], res[0]))
-    map_l = list(map(lambda a: a[3], res[0]))
-    ndcg_5_l = list(map(lambda a: a[2], res[1]))
-    ndcg_l = list(map(lambda a: a[3], res[1]))
-    ilad_l = list(map(lambda a: a[2], res[3]))
-    err_ia_5_l = list(map(lambda a: a[2], res[4]))
-    err_ia_l = list(map(lambda a: a[3], res[4]))
-    all_data_dict = {"all_data": [map_5_l, map_l, ndcg_5_l, ndcg_l, ilad_l, err_ia_5_l, err_ia_l]}
-    print(all_data_dict["all_data"])
-    for i in [0, 5, 10]:
-        print("%.5f" % map_5_l[i], "%.5f" % map_l[i], "%.5f" % ndcg_5_l[i], "%.5f" % ndcg_l[i], "%.5f" % ilad_l[i],
-              "%.5f" % err_ia_5_l[i], "%.5f" % err_ia_l[i])
-    x = [i / 10 for i in range(len(map_l))]
+    # loss, res = eval_controllable_10(model, test_lists, params.l2_reg, params.batch_size, True,
+    #                                  params.metric_scope, False)
 
-    plt.subplot(2, 2, 1)
-    plt.plot(x, map_l, 'r-')
-    plt.xlabel('auc_preference')
-    plt.ylabel('map')
-    plt.subplot(2, 2, 2)
-    plt.plot(x, ndcg_l, 'g-')
-    plt.xlabel('auc_preference')
-    plt.ylabel('ndcg')
-    plt.subplot(2, 2, 3)
-    plt.plot(x, ilad_l, 'b-')
-    plt.xlabel('auc_preference')
-    plt.ylabel('ilad')
-    plt.subplot(2, 2, 4)
-    plt.plot(x, err_ia_l, 'y-')
-    plt.xlabel('auc_preference')
-    plt.ylabel('err_ia')
-    plt.suptitle("{}_{}".format('CMR_generator', 'controllable'))
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    vali_loss, res, prefs = eval_controllable(model, test_lists, params.l2_reg, 4096, True,
+                                                       params.metric_scope, False)
+    
+    for j in [0, 14, 29]:
+        print("auc_prefer: ", prefs[j])
+        # print("STEP %d  INTIAL RANKER | LOSS VALI: NULL" % step)
+        for i, s in enumerate(params.metric_scope):
+            print("@%d  MAP: %.4f  NDCG: %.4f  CLICKS: %.4f  ILAD: %.4f  ERR_IA: %.4f" % (
+                s, res[0][j][i], res[1][j][i], res[2][j][i], res[3][j][i], res[4][j][i]))
+    # map_5_l = list(map(lambda a: a[2], res[0]))
+    # map_l = list(map(lambda a: a[3], res[0]))
+    # ndcg_5_l = list(map(lambda a: a[2], res[1]))
+    # ndcg_l = list(map(lambda a: a[3], res[1]))
+    # ilad_l = list(map(lambda a: a[2], res[3]))
+    # err_ia_5_l = list(map(lambda a: a[2], res[4]))
+    # err_ia_l = list(map(lambda a: a[3], res[4]))
+    # all_data_dict = {"all_data": [map_5_l, map_l, ndcg_5_l, ndcg_l, ilad_l, err_ia_5_l, err_ia_l]}
+    # print(all_data_dict["all_data"])
+    # for i in [0, 5, 10]:
+    #     print("%.5f" % map_5_l[i], "%.5f" % map_l[i], "%.5f" % ndcg_5_l[i], "%.5f" % ndcg_l[i], "%.5f" % ilad_l[i],
+    #           "%.5f" % err_ia_5_l[i], "%.5f" % err_ia_l[i])
+    # x = [i / 10 for i in range(len(map_l))]
+
+    # plt.subplot(2, 2, 1)
+    # plt.plot(x, map_l, 'r-')
+    # plt.xlabel('auc_preference')
+    # plt.ylabel('map')
+    # plt.subplot(2, 2, 2)
+    # plt.plot(x, ndcg_l, 'g-')
+    # plt.xlabel('auc_preference')
+    # plt.ylabel('ndcg')
+    # plt.subplot(2, 2, 3)
+    # plt.plot(x, ilad_l, 'b-')
+    # plt.xlabel('auc_preference')
+    # plt.ylabel('ilad')
+    # plt.subplot(2, 2, 4)
+    # plt.plot(x, err_ia_l, 'y-')
+    # plt.xlabel('auc_preference')
+    # plt.ylabel('err_ia')
+    # plt.suptitle("{}_{}".format('CMR_generator', 'controllable'))
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()

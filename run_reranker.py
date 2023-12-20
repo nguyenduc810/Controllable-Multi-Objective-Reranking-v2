@@ -13,6 +13,9 @@ from librerank.CMR_evaluator import *
 import datetime
 import numpy as np
 
+from pfevaluator.pfevaluator.distribution import Metric
+from pfevaluator.pfevaluator.root import Root
+
 
 import wandb
 
@@ -131,6 +134,24 @@ def eval_controllable(model, data, l2_reg, batch_size, isrank, metric_scope, _pr
     print("EVAL TIME: %.4fs" % (time.time() - t))
     return loss, res, prefs
 
+def save_log_eval(file_path, new_data_to_append):
+    # Đọc dữ liệu hiện tại từ file JSON
+    # if os.path.exists(file_path):
+    #     with open(file_path, "r") as json_file:
+    #         existing_data = json.load(json_file)
+    # # Thêm dữ liệu mới vào dữ liệu hiện tại
+    #     existing_data.update(new_data_to_append)
+    # # Ghi dữ liệu mới (bao gồm dữ liệu hiện tại và dữ liệu mới) vào file JSON
+    #     with open(file_path, "w") as json_file:
+    #         json.dump(existing_data, json_file, indent=2)
+    #     print('Saved eval log')
+    # else:
+    with open(file_path, "w") as json_file:
+        json.dump(new_data_to_append, json_file, indent=2)
+        print('Saved eval log')
+
+
+
 
 def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_dens_fnum, profile_num, params):
     tf.compat.v1.reset_default_graph()
@@ -156,7 +177,7 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
             sess = tf.compat.v1.Session(graph=g, config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
             evaluator.set_sess(sess)
             sess.run(tf.compat.v1.global_variables_initializer())
-            # evaluator.load(params.evaluator_path)
+            evaluator.load(params.evaluator_path)
     else:
         print('No Such Model', params.model_type)
         exit(0)
@@ -166,7 +187,7 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
         sess.run(tf.compat.v1.global_variables_initializer())
         sess.run(tf.compat.v1.local_variables_initializer())
         model.set_sess(sess)
-        # model.load('/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/model/save_single_model/10/202312111450_lambdaMART_CMR_generator_64_1e-05_1e-05_64_16_0.8_1_single')
+        model.load('/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/model/single_obj/10/202312181429_lambdaMART_CMR_generator_64_0.001_1e-05_64_16_0.8_single_model')
         
 
     training_monitor = {
@@ -199,16 +220,34 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                                                         params.batch_size,
                                                         params.lr, params.l2_reg, params.hidden_size, params.eb_dim,
                                                         params.keep_prob,
-                                                        "controllable" if params.controllable else params.acc_prefer)
+                                                        "controllable_LS_LSTM_adapt_trainEval" if params.controllable else 'single_model')
     if not os.path.exists('{}/logs_{}/{}'.format(parse.save_dir, data_set_name, max_time_len)):
         os.makedirs('{}/logs_{}/{}'.format(parse.save_dir, data_set_name, max_time_len))
     # if not os.path.exists('{}/save_model_{}/{}/{}/'.format(parse.save_dir, data_set_name, max_time_len, model_name)):
     #     os.makedirs('{}/save_model_{}/{}/{}/'.format(parse.save_dir, data_set_name, max_time_len, model_name))
-    if not os.path.exists('{}/new_hyper/{}/{}/'.format(parse.save_dir, max_time_len, model_name)):
-        os.makedirs('{}/new_hyper/{}/{}/'.format(parse.save_dir, max_time_len, model_name))
+    if not os.path.exists('{}/adaptation/{}/{}/'.format(parse.save_dir, max_time_len, model_name)):
+        os.makedirs('{}/adaptation/{}/{}/'.format(parse.save_dir, max_time_len, model_name))
     # save_path = '{}/save_model_{}/{}/{}/ckpt'.format(parse.save_dir, data_set_name, max_time_len, model_name)
-    save_path = '{}/new_hyper/{}/{}/ckpt'.format(parse.save_dir, max_time_len, model_name)
+    save_path = '{}/adaptation/{}/{}/ckpt'.format(parse.save_dir, max_time_len, model_name)
     log_save_path = '{}/logs_{}/{}/{}.metrics'.format(parse.save_dir, data_set_name, max_time_len, model_name)
+    
+    model_name_eval = '{}_{}_{}_{}_{}_{}_{}_{}'.format(params.timestamp, initial_ranker, 'evaluator',
+                                                        params.batch_size,
+                                                        params.hidden_size, params.eb_dim,
+                                                        params.keep_prob,
+                                                        "controllable_LS_LSTM_adapt_trainEval" if params.controllable else 'single_model')
+    if not os.path.exists('{}/evaluator/adaptation/{}/{}/'.format(parse.save_dir, max_time_len, model_name)):
+        os.makedirs('{}/evaluator/adaptation/{}/{}/'.format(parse.save_dir, max_time_len, model_name))
+    save_eval_path = '{}/evaluator/adaptation/{}/{}/ckpt'.format(parse.save_dir, max_time_len, model_name_eval)
+
+    if not os.path.exists('checkpoints_pareto/generator/{}/'.format(model_name)):
+        os.makedirs('checkpoints_pareto/generator/{}/'.format(model_name))
+    if not os.path.exists('checkpoints_pareto/evaluator/{}/'.format(model_name_eval)):
+        os.makedirs('checkpoints_pareto/evaluator/{}/'.format(model_name_eval))
+
+    save_checkpoint_gen_path = 'checkpoints_pareto/generator/{}/ckpt'.format(model_name)
+    save_checkpoint_eval_path = 'checkpoints_pareto/evaluator/{}/ckpt'.format(model_name_eval)
+    file_log = '/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/log_eval/{}.json'.format('LS_LSTM_adapt_trainEval')
 
     train_losses_step = []
     auc_train_losses_step = []
@@ -299,7 +338,9 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
     eval_iter_num = batch_num
     print('train', data_size, batch_num)
 
-    print('begin training process (hyper_LSTM)')
+    max_pareto_ratio = 0.0
+    log_eval = dict()
+    print('begin training process')
     for epoch in range(params.epoch_num):
         # if early_stop:
         #     break
@@ -341,18 +382,19 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                 loss,auc_loss, div_loss = model.train(data_batch, training_prediction_order, auc_rewards, div_rewards,
                                                     params.lr, params.l2_reg, params.keep_prob,
                                                     train_prefer=train_prefer)
+                # if epoch == 0:
                 loss_evaluator  = evaluator.train(data_batch, 5e-4, 2e-4, params.keep_prob,
                                                     train_prefer=train_prefer )
+                
                 auc_train_losses_step.append(auc_loss)
                 div_train_losses_step.append(div_loss)
-                wandb.log({'train_loss/loss_evaluator': loss_evaluator,'train_loss/total_loss': loss,'train_loss/auc':auc_train_losses_step[-1],'train_loss/div':div_train_losses_step[-1]})
+                wandb.log({'train_loss/loss_evaluator':loss_evaluator,'train_loss/total_loss': loss,'train_loss/auc':auc_train_losses_step[-1],'train_loss/div':div_train_losses_step[-1]})
             else:
                 loss = model.train(data_batch, params.lr, params.l2_reg, params.keep_prob, train_prefer)
             step += 1
             train_losses_step.append(loss)
             # model.train_epoch()
-            
-            
+
             if step % eval_iter_num == 0:
                 train_loss = sum(train_losses_step) / len(train_losses_step)
                 training_monitor['train_loss'].append(train_loss)
@@ -371,7 +413,7 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
 
                 if not params.controllable:
                     print('Eval: single loss')
-                    vali_loss, res = eval(model, test_file, params.l2_reg, 1024, True,
+                    vali_loss, res = eval(model, test_file, params.l2_reg, 2018, True,
                                           params.metric_scope, False)
                     wandb.log({'train_loss':train_loss,'auc_train_loss':auc_train_loss,'div_train_loss':div_train_loss,'vali_loss': vali_loss})
                     training_monitor['train_loss'].append(train_loss)
@@ -423,6 +465,7 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                     if training_monitor['map_l'][-1] >= max(training_monitor['map_l'][:]):
                         # save model
                         model.save(save_path)
+                        evaluator.save(save_eval_path)
                         pkl.dump(res[-1], open(log_save_path, 'wb'))
                         print('model saved')
 
@@ -435,7 +478,7 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                             early_stop = True
                 else:
                     # pass
-                    vali_loss, res, prefs = eval_controllable(model, test_file, params.l2_reg, 1024, True,
+                    vali_loss, res, prefs = eval_controllable(model, test_file, params.l2_reg, 4096, True,
                                                        params.metric_scope, False)
                     training_monitor['train_loss'].append(train_loss)
                     training_monitor['train_prefer'].append(ave_train_prefer)
@@ -486,11 +529,31 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                 
                     
                     for i, k in enumerate(params.metric_scope):
-                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM/{epoch}_{step}_eval_MAP_NDCG@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[1,:,i]))))
-                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM/{epoch}_{step}_eval_MAP_ILAD@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[3,:,i]))))
-                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM/{epoch}_{step}_eval_MAP_ERR_IA@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[4,:,i]))))
-                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM/{epoch}_{step}_eval_NDCG_ILAD@{k}.npy',np.vstack((np.array(res[1,:,i]), np.array(res[3,:,i]))))
-                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM/{epoch}_{step}_eval_NDCG_ERR_IA@{k}.npy',np.vstack((np.array(res[1,:,i]), np.array(res[4,:,i]))))
+                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval/{epoch}_{step}_eval_MAP_NDCG@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[1,:,i]))))
+                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval/{epoch}_{step}_eval_MAP_ILAD@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[3,:,i]))))
+                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval/{epoch}_{step}_eval_MAP_ERR_IA@{k}.npy',np.vstack((np.array(res[0,:,i]), np.array(res[4,:,i]))))
+                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval/{epoch}_{step}_eval_NDCG_ILAD@{k}.npy',np.vstack((np.array(res[1,:,i]), np.array(res[3,:,i]))))
+                        np.save(f'/home/ubuntu/duc.nm195858/Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval/{epoch}_{step}_eval_NDCG_ERR_IA@{k}.npy',np.vstack((np.array(res[1,:,i]), np.array(res[4,:,i]))))
+                    
+                    data_eval = np.vstack((np.array(res[0,:,0]), np.array(res[4,:,0])))
+                    data_eval = data_eval.T
+                    pr = Metric().pareto_ratio(data_eval)
+                    if pr > max_pareto_ratio:
+                        max_pareto_ratio = pr
+                        model.save(save_checkpoint_gen_path)
+                        evaluator.save(save_checkpoint_eval_path)
+                        print('save checkpoint pareto')
+                        if epoch not in log_eval:
+                            log_eval[epoch] = dict()
+                        log_eval[epoch]['pr'] = pr
+                        sp = Metric().spacing(data_eval)
+                        hv = Metric().calculate_hypervolume(data_eval)
+                        hrs = Metric().Hole_relative_size(data_eval)
+                        log_eval[epoch]['hrs'] = hrs
+                        log_eval[epoch]['hv'] = hv
+                        log_eval[epoch]['sp'] = sp
+                        save_log_eval(file_log,log_eval)
+
                     wandb.log({'MAP/map@5_0':res[0][0][0], 'MAP/map@5_0.5':res[0][14][0], 'MAP/map@5_1':res[0][29][0],
                         'MAP/map@10_0': res[0][0][1], 'MAP/map@10_0.5': res[0][14][1], 'MAP/map@10_1':res[0][29][1],
                         'NDCG/ndcg@5_0':res[1][0][0], 'NDCG/ndcg@5_0.5':res[1][14][0], 'NDCG/ndcg@5_1':res[1][29][0],
@@ -504,6 +567,11 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
                         model.save(save_path)
                         pkl.dump(res[-1], open(log_save_path, 'wb'))
                         print('model saved')
+
+                        # if epoch == 0:
+                        # evaluator.save(save_eval_path)
+                        # print('eval saved')
+                    
 
             # generate log
             if not os.path.exists('{}/logs_{}/{}/'.format(parse.save_dir, data_set_name, max_time_len)):
@@ -534,12 +602,12 @@ def train(train_file, test_file, feature_size, max_time_len, itm_spar_fnum, itm_
         #                 'train/ERR_IA/err_ia@5_0':res[4][0][0], 'train/ERR_IA/err_ia@5_0.5':res[4][14][0], 'train/ERR_IA/err_ia@5_1':res[4][29][0],
         #                 'train/ERR_IA/err_ia@10_0':res[4][0][1], 'train/ERR_IA/err_ia@10_0.5}':res[4][14][1], 'train/ERR_IA/err_ia@10_1':res[4][29][1]})
 
-        if epoch % 5 == 0 and params.controllable:
-            ctl_save_path = '{}/new_hyper/{}/{}/{}/ckpt'.format(parse.save_dir, max_time_len,
-                                                                    model_name,
-                                                                    epoch)
-            model.save(ctl_save_path)
-            print('model saved')
+        # if epoch % 5 == 0 and params.controllable:
+        #     ctl_save_path = '{}/new_hyper/{}/{}/{}/ckpt'.format(parse.save_dir, max_time_len,
+        #                                                             model_name,
+        #                                                             epoch)
+        #     model.save(ctl_save_path)
+        #     print('model saved')
 
 
 def reranker_parse_args():
@@ -593,7 +661,7 @@ if __name__ == '__main__':
 
     wandb.init(
         project='MORS-reranking',
-        name= 'new_hyper_chebyshev_LSTM',
+        name= 'LS_LSTM_adapt_trainEval',
         config={
   "model_type": "CMR_generator",
   "data_set_name": "ad",
@@ -609,7 +677,7 @@ if __name__ == '__main__':
   "controllable": True,
   "acc_prefer": [0,1],
   "new":'emb prefer 32, new_LSTM ',
-  'save_folder': 'Controllable-Multi-Objective-Reranking-v2/result/new_hyper/chebyshev_LSTM'
+  'save_folder': 'Controllable-Multi-Objective-Reranking-v2/result/adaptation/LS_LSTM_adapt_trainEval'
 }
     )
 
